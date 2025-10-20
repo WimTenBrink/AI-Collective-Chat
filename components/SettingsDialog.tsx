@@ -49,6 +49,9 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ isOpen, onClose, onSave
                <p className="text-xs text-gray-500 mt-2">
                 Note: The free tier of the Gemini API has rate limits. If the chat pauses or you see errors, you may have exceeded the number of allowed requests per minute.
               </p>
+              <p className="text-xs text-yellow-400 bg-yellow-900/50 p-2 rounded-md mt-2">
+                <strong>Important:</strong> If you get a "permission denied" or "referrer blocked" error, your API key has website restrictions. Go to your Google Cloud Console for your API key and, under "Website restrictions", select "None" to remove them.
+              </p>
             </div>
           </div>
         </div>

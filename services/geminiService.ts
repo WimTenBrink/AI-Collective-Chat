@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import type { Message } from '../types';
+import { logService } from './logService';
 
 const MAX_RETRIES = 5;
 const INITIAL_BACKOFF_MS = 1000;
@@ -27,38 +28,48 @@ export const getBotResponse = async (personality: string, history: Message[]): P
 
   let lastError: any = null;
 
+  const requestPayload = {
+    model: "gemini-2.5-flash",
+    contents: formatChatHistory(history),
+    config: {
+      systemInstruction: personality,
+      temperature: 0.8,
+      topP: 0.95,
+    }
+  };
+
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: formatChatHistory(history),
-        config: {
-          systemInstruction: personality,
-          temperature: 0.8,
-          topP: 0.95,
-        }
-      });
+      logService.api('Gemini API Request', { attempt: attempt + 1, payload: requestPayload });
+      const response = await ai.models.generateContent(requestPayload);
+      logService.api('Gemini API Success Response', { response });
       return response.text;
     } catch (error) {
       lastError = error;
-      const errorMessage = (error as any)?.message || '';
+      logService.api('Gemini API Error Response', { error });
+
+      const errorMessage = JSON.stringify(error) || '';
+
+      if (errorMessage.includes('API_KEY_HTTP_REFERRER_BLOCKED') || errorMessage.includes('Requests from referer')) {
+          logService.error("Referrer block error detected", error);
+          return "[System message: Your API Key has HTTP referrer restrictions that are blocking requests from this app. Please go to your Google Cloud Console, edit the API key, and remove all website restrictions.]";
+      }
 
       if (errorMessage.includes('429') || errorMessage.includes('RESOURCE_EXHAUSTED')) {
         const delay = INITIAL_BACKOFF_MS * Math.pow(2, attempt) + Math.random() * 1000;
-        console.warn(`Rate limit hit. Retrying in ${Math.round(delay / 1000)}s... (Attempt ${attempt + 1}/${MAX_RETRIES})`);
+        logService.warn(`Rate limit hit. Retrying in ${Math.round(delay / 1000)}s...`, { attempt: attempt + 1, maxRetries: MAX_RETRIES });
         await sleep(delay);
       } else {
-        // Not a rate limit error, don't retry
-        console.error("Non-retriable error generating content:", error);
+        logService.error("Non-retriable error generating content", error);
         break;
       }
     }
   }
 
-  // After all retries, handle the last known error
-  console.error("Failed to get bot response after multiple retries.", lastError);
+  logService.error("Failed to get bot response after multiple retries.", lastError);
   if (lastError) {
-    const finalErrorMessage = (lastError as any)?.message || '';
+    const finalErrorMessage = JSON.stringify(lastError);
+    
     if (finalErrorMessage.includes('API key not valid')) {
        return "Your API Key is invalid. Please check it in the settings.";
     }

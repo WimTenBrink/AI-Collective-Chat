@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ChatInterface from './components/ChatInterface';
 import SettingsDialog from './components/SettingsDialog';
+import ConsoleLogDialog from './components/ConsoleLogDialog';
 import { getBotResponse } from './services/geminiService';
+import { logService } from './services/logService';
 import type { Message, Bot } from './types';
 import { BOTS_CONFIG, USER_NAME } from './constants';
 
@@ -10,6 +12,7 @@ const App: React.FC = () => {
   const [bots, setBots] = useState<Bot[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isConsoleOpen, setIsConsoleOpen] = useState(false);
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [isChatActive, setIsChatActive] = useState(true);
   const [introductionsDone, setIntroductionsDone] = useState(false);
@@ -17,6 +20,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const storedKey = localStorage.getItem('gemini_api_key');
+    logService.info('App Initialized', { hasApiKey: !!storedKey });
     if (storedKey) {
       setApiKey(storedKey);
     } else {
@@ -26,6 +30,7 @@ const App: React.FC = () => {
 
   const fetchPersonalities = useCallback(async () => {
     try {
+      logService.info('Fetching personalities...');
       const botPromises = BOTS_CONFIG.map(async (config) => {
         const response = await fetch(config.personalityFile);
         if (!response.ok) {
@@ -42,8 +47,9 @@ const App: React.FC = () => {
       });
       const loadedBots = await Promise.all(botPromises);
       setBots(loadedBots);
+      logService.info('Personalities loaded successfully', { botCount: loadedBots.length });
     } catch (error) {
-      console.error("Error loading bot personalities:", error);
+      logService.error("Error loading bot personalities", { error });
     } finally {
       setIsLoading(false);
     }
@@ -55,13 +61,14 @@ const App: React.FC = () => {
   
   useEffect(() => {
     const runIntroductions = async () => {
-      let currentHistory: Message[] = [];
+      logService.info('Starting bot introductions...');
       const introPrompt: Message = { id: 0, author: 'System', text: 'Please provide a short, in-character introduction.' };
 
       for (const bot of bots) {
         await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1500));
         setBots(prev => prev.map(b => b.name === bot.name ? { ...b, isTyping: true } : b));
         
+        logService.debug(`Bot ${bot.name} is generating its introduction.`);
         const responseText = await getBotResponse(bot.personality, [introPrompt]);
         const newBotMessage: Message = {
           id: Date.now() + Math.random(),
@@ -70,9 +77,9 @@ const App: React.FC = () => {
         };
         
         setMessages(prev => [...prev, newBotMessage]);
-        currentHistory.push(newBotMessage);
         setBots(prev => prev.map(b => b.name === bot.name ? { ...b, isTyping: false } : b));
       }
+      logService.info('Bot introductions complete.');
       setIntroductionsDone(true);
     };
   
@@ -83,15 +90,22 @@ const App: React.FC = () => {
   }, [bots, apiKey, introductionsDone, isLoading]);
 
 
-  const triggerBotResponse = useCallback(async (currentHistory: Message[], lastSpeaker?: string) => {
+  const triggerBotResponse = useCallback(async (currentHistory: Message[]) => {
     if (!apiKey || bots.length === 0) return;
 
     const recentSpeakers = new Set(currentHistory.slice(-3).map(m => m.author));
     const availableBots = bots.filter(bot => !recentSpeakers.has(bot.name));
     
-    if (availableBots.length === 0) return;
+    if (availableBots.length === 0) {
+      logService.warn('No available bots to respond.', { recentSpeakers: Array.from(recentSpeakers) });
+      return;
+    }
 
     const botToRespond = availableBots[Math.floor(Math.random() * availableBots.length)];
+    logService.info(`Triggering bot response: ${botToRespond.name}`, { 
+        availableBots: availableBots.map(b=>b.name),
+        recentSpeakers: Array.from(recentSpeakers)
+    });
 
     setBots(prev => prev.map(b => b.name === botToRespond.name ? { ...b, isTyping: true } : b));
 
@@ -115,11 +129,11 @@ const App: React.FC = () => {
     }
     
     const timer = setTimeout(() => {
-      // Don't trigger autonomous chat if the user was the last one to speak
       const lastMessage = messages[messages.length - 1];
       if (lastMessage && lastMessage.author !== USER_NAME) {
          if (Math.random() < 0.5) {
-           triggerBotResponse(messages, messages[messages.length - 1]?.author);
+           logService.debug("Triggering autonomous bot chat.");
+           triggerBotResponse(messages);
          }
       }
     }, 15000 + Math.random() * 10000);
@@ -128,6 +142,7 @@ const App: React.FC = () => {
   }, [bots, isLoading, messages, triggerBotResponse, isSettingsOpen, isChatActive, introductionsDone]);
 
   const handleSendMessage = (text: string) => {
+    logService.info("User sent a message", { text });
     const newUserMessage: Message = {
       id: Date.now(),
       author: USER_NAME,
@@ -137,15 +152,17 @@ const App: React.FC = () => {
     setMessages(updatedHistory);
 
     setTimeout(() => {
-      triggerBotResponse(updatedHistory, USER_NAME);
+      triggerBotResponse(updatedHistory);
     }, 500);
   };
   
   const handleToggleChat = () => {
+    logService.info(`Toggling autonomous chat`, { to: !isChatActive });
     setIsChatActive(prev => !prev);
   };
 
   const handleSaveApiKey = (newKey: string) => {
+    logService.info('API Key saved.');
     localStorage.setItem('gemini_api_key', newKey);
     setApiKey(newKey);
     setIsSettingsOpen(false);
@@ -173,6 +190,7 @@ const App: React.FC = () => {
           isChatActive={isChatActive}
           onToggleChat={handleToggleChat}
           onOpenSettings={() => setIsSettingsOpen(true)}
+          onOpenConsole={() => setIsConsoleOpen(true)}
         />
       </div>
       <SettingsDialog 
@@ -180,6 +198,10 @@ const App: React.FC = () => {
         onClose={() => apiKey && setIsSettingsOpen(false)}
         onSave={handleSaveApiKey}
         currentApiKey={apiKey}
+      />
+      <ConsoleLogDialog
+        isOpen={isConsoleOpen}
+        onClose={() => setIsConsoleOpen(false)}
       />
     </div>
   );

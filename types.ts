@@ -1,4 +1,3 @@
-// FIX: Import ReactNode to resolve 'Cannot find namespace React'.
 import type { ReactNode } from 'react';
 
 export interface Message {
@@ -10,8 +9,17 @@ export interface Message {
 export interface Bot {
   name: string;
   personality: string;
-  // FIX: Use ReactNode directly.
   avatar: ReactNode;
   color: string;
   isTyping: boolean;
+}
+
+export type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'API';
+
+export interface LogEntry {
+  id: number;
+  timestamp: Date;
+  level: LogLevel;
+  title: string;
+  details: any;
 }
