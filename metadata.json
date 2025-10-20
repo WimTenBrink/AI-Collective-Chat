@@ -1,0 +1,5 @@
+{
+  "name": "AI Collective Chat",
+  "description": "A chat application where a user can interact with a group of five distinct AI chatbots, each with a unique personality and expertise in scientific and technological topics. The bots can also interact with each other, creating a dynamic group conversation.",
+  "requestFramePermissions": []
+}
